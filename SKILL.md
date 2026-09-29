@@ -1,79 +1,82 @@
 ---
 name: gba-pokemon-chinese-localization
-description: Use when localizing, translating, or text-injecting GBA Pokémon decompilation projects (pokeemerald, pokefirered, pokeemerald-expansion, or romhacks like Heart & Soul) into Simplified Chinese with custom double-byte font engines and charmaps
+description: Use when translating GBA Pokémon decompilation projects into Simplified Chinese, repairing missing text or punctuation, or verifying localized ROM artifacts and UI layout.
 ---
 
-# GBA 宝可梦反编译中文精翻全流程 (GBA Pokémon Chinese Localization)
+# GBA 宝可梦中文精翻与 ROM 验收
 
-## Overview
+## 目标与边界
 
-专为 GBA 宝可梦 C 语言反编译改版项目（如 `pokeemerald`, `pokefirered`, `pokeemerald-expansion`, 《心金·魂银》Heart & Soul 等）打造的工业级**简体中文汉化全流程规范与工具库**。
+面向 pokeemerald、pokefirered、pokeemerald-expansion 及 Heart & Soul 等源码项目。保留目标项目的协议式文本控制、游戏逻辑和条件编译分支，完成自然、统一、可验证的简体中文本地化。
 
-涵盖双字节汉字引擎挂载、全语法文本抽取（`.string` & `COMPOUND_STRING`）、多梯队去机翻语料融合（官方修正译本 + 社区增益版引擎 + 大模型深度推理）、变量/控制符刚性守卫、GBA 对话框自适应折行回填及云端 CI 自动化构建。
+**语料对齐率 ≠ 源码覆盖率 ≠ ROM 文本覆盖率 ≠ 画面验收。编译成功不代表汉化完成。** 不得把没有英文单词、测试通过或一次开机截图称为“全流程无遗漏”。
 
----
+开始前检查目标仓库规则、分支、工作树和既有工具。不要覆盖无关改动、缓存、存档或用户 ROM。没有用户授权，不推送、发版或向外部翻译服务上传内容。
 
-## When to Use (适用场景)
+## 工作流程
 
-- 将 `pokeemerald` / `pokefirered` 反编译改版项目汉化为**高质量简体中文**。
-- 处理现代 C 反编译改版中传统二进制修改工具（如指针搜索、ROM 直接十六进制修改）失效的问题。
-- 解决 GBA 汉字字模挂载（`.png` -> `.latfont` / `.hwjpnfont`）与 `charmap.txt` 字符集冲突。
-- 注入中文时防止破坏 GBA 控制符（`\p`, `\n`, `\l`, `$`）或变量占位符（`{PLAYER}`, `{RIVAL}`）。
-- 杜绝生硬直译与机翻腔，实现兼具人物角色性格口吻与正统官方译名的高水准汉化。
+### 1. 识别目标版本与实际字体路径
 
----
+- 确认构建目标、配置宏、上游 revision、现有中文引擎和 charmap。不要假设改版与原版 ROM 地址相同。
+- 逐项合并字符映射，保留改版专用宏；禁止整文件覆盖 charmap。
+- 跟踪解码、字形解压和宽度计算路径。标点可能从 Latin 字库读取，而汉字从中文双字节字库读取。
+- 同时核验映射存在、对应字形非空、编译后字形正确、运行时确实选中该字形。
 
-## The 5-Stage Localization Architecture (五阶段本地化架构)
+### 2. 建立文本清单及构建范围
 
-```text
-[阶段 1: 双字节汉字引擎与字符集 (Font Engine & Charmap)]
- ├── 制作点阵汉字字模图片 (chinese_normal.png / chinese_small.png) 并配置编译规则
- ├── 扩充 charmap.txt 双字节编码映射 (0x0100~0x1E00，必须保留改版特有宏如 B_RIVAL_NAME)
- └── 挂载 text.c 核心解码钩子 (IsChineseChar, DecompressGlyph_Chinese, GetChineseFontWidth)
-          │
-[阶段 2: 语法树全量文本抽取 (scripts/extractor.py)]
- ├── 扫描 .inc 汇编脚本 (data/maps/*/*.inc, data/text/*.inc) -> 提取 .string 块
- ├── 扫描 C 源码/头文件 (src/data/items.h, moves_info.h) -> 提取 COMPOUND_STRING, _("..."), ITEM_NAME
- └── 跨行相邻字符串字面量自动拼接，按预处理器 (#if / #else) 严格切分独立块
-          │
-[阶段 3: 多层级去机翻翻译融合]
- ├── 第一梯队 (共用引擎移植): 对接 rh-hideout-chinese 中文增益版招式、道具、战斗播报与系统菜单
- ├── 第二梯队 (权威剧本融合): 吸收借鉴民间优质修正剧本 (如 Xzonn HGSS 全文本库)，对齐人物口癖
- └── 第三梯队 (大模型深度推理): 调用 Gemini/DeepSeek 高推理模式补全改版原创剧情与阿罗拉支线
-          │
-[阶段 4: 格式守卫与 Linter 审查 (scripts/format_guard.py)]
- ├── 占位符等价性审查: set(source_vars) == set(trans_vars)，严禁增删改 {PLAYER}, {RIVAL}
- ├── 控制代码严格对称: \p (分页换框), \n (第一行换行), \l (滚屏换行), $ (结束符)
- ├── 字符集覆盖度审计: 确保所有译文汉字在 charmap.txt 中 100% 存在，避免编译缺字
- └── 裸字符清理: 清洗 JSON 混入的未转义物理回车 (0x0A)，将全角英数与标点映射为安全半角
-          │
-[阶段 5: GBA 对话框排版折行与代码回填 (scripts/injector.py)]
- ├── 中文自适应排版: GBA 文本框单行上限 16~18 全角汉字，首行加 \n，第二行加 \l，换框加 \p
- ├── 源码无损写回: 原地安全替换 600+ 源码文件，保持缩进与汇编格式完好
- └── 云端 CI 构建: 触发 GitHub Actions (make hns) 自动产出完全中文化的 .gba ROM
-```
+- 扫描 `data/maps`、`data/text`、`data/scripts` 的 `.string`；扫描实际使用的 C/H 文本宏、相邻字面量和表格字段。
+- 必查：剧情、电话、公共事件、战斗播报、菜单、图鉴介绍和分类、宝可梦/招式/特性/道具名称及说明、树果、教程、存档提示和特殊设施。
+- 按源文件、label/字段、索引、源文本、条件分支记录身份。分支边界切块不等于完整预处理；必要时使用构建预处理结果及 ELF/MAP 判断是否链接。
+- 抽取器不是完整 C 编译器。不支持的宏拼接、动态生成字符串、图片文字、重复标签和跳过条目必须另列报告，不能静默视为覆盖。
+- 英文检测先提取字符串负载并去除控制宏，不能对 `.string` 指令本身匹配英文。纯英文、中英混排、音译、人名、按钮缩写分别复核。
 
----
+### 3. 翻译与编辑审校
 
-## 核心避坑指南 (Critical Engineering Pitfalls)
+- 复用社区引擎译文时核对版本、字段含义与授权；参考 HGSS 修正版剧本时只借鉴语境、用词和人物口吻，不拷贝 NDS 控制码。
+- 大模型输出是候选译文，不是终审。按原文和场景复核省略、错译、机械口吻、人物指代、地名与游戏机制。
+- 保留技术名/署名/按钮标签必须有逐项理由；不能把宽泛正则白名单当作人工审校。
+- 修复记录保留 source、translation、位置与理由；旧语料不能覆盖已人工修订的源码。
 
-### 1. 字符集与条件编译陷阱
-- **绝对不要整文件覆盖 `charmap.txt`**：各个改版常扩充私有宏（如 `B_RIVAL_NAME = FD 48`，`POKE = 55 56`）。覆盖会导致关联 C 源码编译全面崩溃。
-- **预处理器分支隔离（`#if / #else / #endif`）**：在同一脚本下为不同版本提供文本时，抽取器与回填器必须将分支切分为独立 block，防止分支之间相互覆盖产生剧情穿帮。
+### 4. 格式、编码与排版守卫
 
-### 2. 杜绝机翻与语感把控原则
-- **拒绝 NDS 文本生搬硬套**：NDS 文本带有平台专有控制码（如 `[0100,0000]`、`\f`、`\r`），不可直接用于 GBA。应将其作为“台词语气、口语化表达与人设立体感”的语境参考库。
-- **鲜明的人物性格口吻**：
-  - 博士长辈：稳重仁厚、循循善诱；
-  - 劲敌反派：狂妄不羁、桀骜挑衅；
-  - 路人挑战者：热血口语（如将 "You're going down!" 译为「看我不打垮你！」而非「你要下去了！」）。
-- **统一采用正统官方译名**：遵循第七世代以后的官方宝可梦、技能、道具与地名规范。
+- 占位符使用 **Counter 多重集** 比较，重复次数也必须相等。保持有执行顺序要求的颜色、音效、暂停等控制序列；变量可因中文语序调整，但须审查语义。
+- 严格保留分页与终止语义；不能任意增删 `\p`、`$`，不能把嵌入终止符视作可见文本。
+- 对话可重新安排 `\n`、`\l`，但静态图鉴、道具栏、多行菜单必须按各自打印器布局，不可套用滚动对白模板。
+- 字符覆盖检查必须包含 ASCII 标点。`[`、`]` 等不能仅因是 ASCII 就认为可编码。禁止无条件把中文引号转换为裸双引号，或把汉字替换成近音字以通过编译。
+- 物理换行可在明确的规范化步骤转为转义换行；规范化后重新验证，保存前后证据。
+- 行宽依据实际字体、字距、窗口宽度和动态变量上界计算，不以宏名称字符数代替显示宽度。未解析的变量宽度应标为未知，不得输出“布局通过”。
+- 避免标点独占一行、闭标点出现在行首、开引号留在行尾。检查连续标点、小窗口及控制码插入边界。
+- 名称数组检查 **charmap 编码字节数及终止符空间**，不能使用 Python 字符数或 UTF-8 字节数代替。
+- “是/否”等菜单的分隔符必须与菜单项数、行距和光标初始化一致。
 
----
+### 5. 安全回填与回归
 
-## 随附工具脚本 (Included Scripts & References)
+- 默认 dry-run。写回必须验证当前源码与记录的 source 一致；找不到唯一目标、分支含糊、字面量间有动态宏或格式校验失败时拒写并报告。
+- 保持 C 宏续行、声明、表结构、条件编译和控制码。拒绝术语替换后仍为半英文的 dictionary scaffold。
+- 不用一次全量注入覆盖已经人工排版的菜单/图鉴。复杂布局应单独维护。
+- 测试包含：共享脚本抽取、多字面量、分支/重复 label、stale source 拒写、占位符重复次数、终止符、空分页、裸换行、字库、Yes/No 和静态页面。
+- 运行测试、dry-run 和 `git diff --check`；测试未覆盖的范围必须显式说明。
 
-- `references/technical-reference.md`：GBA 宝可梦双字节文字引擎原理与排版规格深度参考。
-- `scripts/extractor.py`：全语法文本抽取脚本。
-- `scripts/format_guard.py`：占位符、控制符与标点清洗守卫。
-- `scripts/injector.py`：GBA 16 字智能折行与源码原地回填引擎。
+### 6. 构建、下载与 ROM 二次审计
+
+- 提交并推送已授权的源码后才触发远程构建；工作树修改不会自动进入 GitHub Actions。由一个执行者管理该分支和构建，避免重复触发旧 SHA。
+- 保存 GBA、ELF、MAP、symbols、build-revision 和 SHA256SUMS。逐项确认必需产物存在；上传动作发现一个文件不代表全部产物齐全。
+- 下载产物并核对 commit、文件大小、ROM 标头和哈希。这只是身份核验，**不是文本审计**。
+- 按该 revision 的 charmap 和控制码长度，从实际符号地址/文本指针解码 ROM；处理双字节汉字及含参数控制码，避免将机器码、图像、填充或指针误判为文本。
+- 记录符号、地址、解码结果、证据与分类；列出扫描分母、动态/压缩/图片等盲区及未分类候选。使用源文本编码与 ROM 字节交叉比对。
+- 校验编译后标点字形、菜单换行字节、名称/说明文本、字体宽度。不得以 raw ASCII strings 扫描替代游戏编码解码。
+- 在模拟器中使用产物副本验证：开机/新游戏、至少一个旧英文场景、宝可梦中心是/否、主要标点、图鉴、招式/道具/特性、树果和长变量。保存截图、操作步骤、ROM 哈希与结果。
+- 发现问题则修源码、补测试、重新构建、重新下载并复检，不直接改发布 ROM 来掩盖源码问题。
+
+## 完成条件与交付
+
+仅当已知阻断问题全部解决且对应验证完成，才标记本轮修复完成。交付：源码 commit、CI run、产物路径与哈希、测试结果、二进制审计报告、视觉验证证据、明确的保留项/未验证项。任何仍存在的已知遗漏、错位或构建失败都不能写成“高质量最终版已完成”。
+
+不作无法证明的“绝对零遗漏”承诺；报告应准确描述验证范围。未能运行模拟器时，标注视觉验收待完成，不用单元测试代替。
+
+## 随附内容
+
+- `references/technical-reference.md`：编码、排版与条件分支规则。
+- `scripts/extractor.py`：文本抽取；以具体支持范围为准。
+- `scripts/format_guard.py`：控制码与占位符校验。
+- `scripts/injector.py`：安全回填接口；使用前检查 CLI 与测试。
